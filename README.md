@@ -1,1 +1,1 @@
-start: ./monitoring-alerts &
+start: ```./monitoring-alerts &```
