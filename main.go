@@ -3,12 +3,13 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
 	"math"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"time"
+
 	gosxnotifier "github.com/deckarep/gosx-notifier"
 	"github.com/joho/godotenv"
 	"github.com/shirou/gopsutil/mem"
@@ -24,30 +25,42 @@ func getPercentRAM() (int, error) {
 
 func sendAppleScriptNotification(ram int) {
 	later := "Напомнить позже (30мин)"
+	dropCache:= "Очистить Кэш"
 
-	script := `
-    set ramUsage to ` + strconv.Itoa(ram) + `
-    set laterButton to "` + later + `"
-    
-    display dialog "Обнаружено высокое потребление памяти: " & ramUsage & "%" & return & return & ¬
+    script := `set ramUsage to ` + strconv.Itoa(ram) + `
+set laterButton to "` + later + `"
+set dropCacheButton to "` + dropCache + `"
+
+try
+    set userChoice to display dialog "Обнаружено высокое потребление памяти: " & ramUsage & "%" & return & return & ¬
     "Рекомендуется проверить активные процессы." ¬
     with title "⚠️ Мониторинг системы ⚠️" ¬
-    buttons {"Мониторинг", laterButton, "✕ Игнорировать"} ¬
+    buttons {"Мониторинг", dropCacheButton, laterButton} ¬
     default button "Мониторинг" ¬
-    cancel button "✕ Игнорировать" ¬
+    cancel button laterButton ¬
     with icon caution
     
-    set buttonPressed to button returned of result
+    set buttonPressed to button returned of userChoice
     
     if buttonPressed is "Мониторинг" then
         tell application "Activity Monitor" to activate
+        return "monitor"
         
-    else if buttonPressed is laterButton then
-        display notification "Напомню через 30 минут" with title "Мониторинг системы"
+    else if buttonPressed is dropCacheButton then
+        try
+            do shell script "sudo purge" with administrator privileges
+            display notification "Кэш очищен" with title "✅ Готово"
+            return "cache_cleared"
+        on error
+            return "cache_failed"
+        end try
     end if
     
-    return buttonPressed
-    `
+on error number -128
+    -- Пользователь нажал cancel (laterButton) или Esc
+    display notification "Напомню через 30 минут" with title "⏰ Мониторинг системы"
+    return "remind_later"
+end`
 
 	cmd := exec.Command("osascript", "-e", script)
 	output, err := cmd.CombinedOutput()
@@ -57,8 +70,10 @@ func sendAppleScriptNotification(ram int) {
 	}
 
 	response := strings.TrimSpace(string(output))
-	if response == later {
+	if response == "remind_later" {
 		time.Sleep(time.Duration(30) * time.Minute)
+	} else if response== "cache_failed"{
+		time.Sleep(time.Duration(10) * time.Minute)
 	}
 }
 
